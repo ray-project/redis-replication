@@ -40,6 +40,12 @@
 #include <ctype.h>
 #include <string.h>
 
+int rdbLoad(char *filename, void *rsi);
+
+int loadAppendOnlyFile(char *filename);
+
+int logging = 1;
+
 /* HELLO.SIMPLE is among the simplest commands you can implement.
  * It just returns the currently selected DB id, a functionality which is
  * missing in Redis. The command uses two important API calls: one to
@@ -48,6 +54,27 @@
 int ReplicationSimple_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
+    if (logging) {
+      RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
+      return RedisModule_ReplicateVerbatim(ctx);
+    }
+    RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
+    return REDISMODULE_OK;
+}
+
+int ReplicationLoad_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    rdbLoad("/tmp/redis.rdb", NULL);
+    RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
+    return REDISMODULE_OK;
+}
+
+int ReplicationReplay_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    loadAppendOnlyFile("appendonly.aof");
+    logging = 0;
     RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
     return REDISMODULE_OK;
 }
@@ -62,6 +89,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"replication.simple",
         ReplicationSimple_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
       return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"replication.load",
+        ReplicationLoad_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+      return REDISMODULE_ERR;
+
+      if (RedisModule_CreateCommand(ctx,"replication.replay",
+          ReplicationReplay_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
