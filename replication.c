@@ -46,18 +46,27 @@ int loadAppendOnlyFile(char *filename);
 
 int logging = 1;
 
-/* HELLO.SIMPLE is among the simplest commands you can implement.
- * It just returns the currently selected DB id, a functionality which is
- * missing in Redis. The command uses two important API calls: one to
- * fetch the currently selected DB, the other in order to send the client
- * an integer reply as response. */
-int ReplicationSimple_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
+int ReplicationWrite_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (logging) {
+      RedisModule_ReplicateVerbatim(ctx);
       RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
-      return RedisModule_ReplicateVerbatim(ctx);
+      return REDISMODULE_OK;
     }
+    RedisModuleKey *key;
+    key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
+    long long l;
+    RedisModule_StringToLongLong(argv[2], &l);
+
+    size_t len;
+    char *str = RedisModule_StringDMA(key,&len,REDISMODULE_WRITE);
+
+    char number[10] = {0};
+    memcpy(&number[0], str, len);
+    if (l > strtol(&number[0], NULL, 10)) {
+      printf("dropping\n");
+      RedisModule_StringSet(key,argv[2]);
+    }
+    RedisModule_CloseKey(key);
     RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
     return REDISMODULE_OK;
 }
@@ -73,7 +82,15 @@ int ReplicationLoad_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 int ReplicationReplay_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
+    logging = 0;
     loadAppendOnlyFile("appendonly.aof");
+    RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
+    return REDISMODULE_OK;
+}
+
+int ReplicationReady_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     logging = 0;
     RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
     return REDISMODULE_OK;
@@ -86,17 +103,21 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         == REDISMODULE_ERR)
       return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"replication.simple",
-        ReplicationSimple_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"replication.write",
+        ReplicationWrite_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
       return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"replication.load",
         ReplicationLoad_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
       return REDISMODULE_ERR;
 
-      if (RedisModule_CreateCommand(ctx,"replication.replay",
-          ReplicationReplay_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"replication.replay",
+        ReplicationReplay_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+      return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"replication.ready",
+        ReplicationReady_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+      return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
